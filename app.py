@@ -18,9 +18,12 @@ def get_data(symbol):
         return None
 
 # Global signals
-us_bonds = get_data("TLT")
-dxy = get_data("DX-Y.NYB")
-gold = get_data("GC=F")
+ 
+us_bonds = get_data("TLT")          # US bonds
+dxy = get_data("UUP")              # Dollar ETF
+nifty = get_data("NIFTYBEES.NS")   # Nifty ETF (India)
+
+
 
 # India index
 nifty = get_data("^NSEI")
