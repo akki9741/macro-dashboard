@@ -6,7 +6,7 @@ import time
 
 st.set_page_config(page_title="Pro Investing Dashboard", layout="wide")
 
-st.title("🇮🇳 Pro Macro + Stock + Gold Dashboard")
+st.title("🇮🇳 Pro Macro + Screener Dashboard")
 
 # =========================
 # FRED MACRO
@@ -58,17 +58,15 @@ def get_trend(data):
         return 0
     return 0
 
-# Proxies
+# Market proxies
 dxy = get_data(["UUP"])
-nifty = get_data(["NIFTYBEES.NS", "^NSEI", "INDA"])
 gold = get_data(["GLD", "GC=F"])
 
 dxy_trend = get_trend(dxy)
-nifty_trend = get_trend(nifty)
 gold_trend = get_trend(gold)
 
 # =========================
-# MACRO DASHBOARD
+# MACRO
 # =========================
 st.header("🌍 Macro")
 
@@ -77,44 +75,31 @@ col1.metric("US 10Y", f"{us10y_val}%" if us10y_val else "N/A")
 col2.metric("CPI", f"{cpi_val}%" if cpi_val else "N/A")
 col3.metric("Real Rate", f"{real_rate}%" if real_rate else "N/A")
 
-# Liquidity
+# =========================
+# MARKET SIGNAL
+# =========================
+st.subheader("💧 Market Signal")
+
 if real_rate:
     if real_rate < 0:
-        st.success("🟢 Liquidity Positive")
+        st.success("🟢 Bullish Liquidity")
     elif real_rate < 1:
-        st.warning("⚠️ Neutral")
+        st.warning("⚠️ Neutral Market")
     else:
         st.error("🔴 Tight Liquidity")
 
 # =========================
-# FII MODEL
+# GOLD
 # =========================
-fii = "neutral"
-
-if real_rate and dxy_trend:
-    if real_rate < 0 and dxy_trend < 0:
-        fii = "inflow"
-        st.success("🟢 FII Inflows")
-    elif real_rate > 1 and dxy_trend > 0:
-        fii = "outflow"
-        st.error("🔴 FII Outflows")
-    else:
-        st.warning("⚖️ Mixed Flow")
-
-# =========================
-# GOLD ANALYSIS
-# =========================
-st.header("🥇 Gold Position")
+st.subheader("🥇 Gold View")
 
 if real_rate and gold_trend:
-    if real_rate < 0 and gold_trend > 0:
+    if real_rate < 0:
         st.success("🟢 HOLD / ADD GOLD")
-    elif real_rate > 1 and gold_trend < 0:
-        st.error("🔴 PARTIAL EXIT GOLD")
+    elif real_rate > 1:
+        st.warning("⚠️ HOLD (avoid adding)")
     else:
-        st.warning("⚖️ HOLD GOLD")
-else:
-    st.info("Gold data loading")
+        st.info("⚖️ Neutral Gold")
 
 # =========================
 # SCREENER QUERY
@@ -131,7 +116,7 @@ Promoter holding > 50
 """
 
 # =========================
-# FETCH SCREENER DATA
+# FETCH SCREENER
 # =========================
 def fetch_screener():
     try:
@@ -142,45 +127,31 @@ def fetch_screener():
             "Referer": "https://www.screener.in/"
         }
 
-        payload = {"query": query, "limit": 100}
+        payload = {"query": query, "limit": 200}
 
         session = requests.Session()
         res = session.post(url, headers=headers, data=payload)
 
-        data = res.json().get("data", [])
-
-        if len(data) > 0:
-            return data
+        return res.json().get("data", [])
 
     except:
-        pass
+        return []
 
-    # fallback (never empty)
-    return [
-        {"name": "HDFC Bank", "code": "HDFCBANK"},
-        {"name": "ICICI Bank", "code": "ICICIBANK"},
-        {"name": "Reliance", "code": "RELIANCE"},
-        {"name": "L&T", "code": "LT"},
-        {"name": "TCS", "code": "TCS"},
-        {"name": "Infosys", "code": "INFY"}
-    ]
+data = fetch_screener()
 
 # =========================
 # SHOW RAW STOCKS
 # =========================
-st.header("📋 Raw Screener Stocks")
-
-data = fetch_screener()
+st.header("📋 Screener Stocks")
 
 names = [stock["name"] for stock in data]
 st.write(f"Total Stocks: {len(names)}")
-
 st.dataframe(pd.DataFrame(names, columns=["Stock Names"]))
 
 # =========================
-# RANKING ENGINE
+# UPTREND ENGINE
 # =========================
-st.header("🏆 Top Opportunities")
+st.header("🚀 Stocks Entering Uptrend")
 
 results = []
 
@@ -189,7 +160,7 @@ for stock in data:
         ticker = stock["code"] + ".NS"
         df = yf.download(ticker, period="3mo", progress=False)
 
-        if df is None or len(df) < 20:
+        if df is None or len(df) < 50:
             continue
 
         close = df["Close"]
@@ -199,15 +170,20 @@ for stock in data:
         ma50 = close.rolling(50).mean().iloc[-1]
 
         momentum = ((price - close.iloc[-5]) / close.iloc[-5]) * 100
+        recent_high = close[-20:].max()
 
         score = 0
 
-        if price > ma20 > ma50:
-            score += 2
-        if momentum > 2:
-            score += 2
+        if price > ma20:
+            score += 1
+        if ma20 > ma50:
+            score += 1
+        if momentum > 1:
+            score += 1
+        if price >= 0.98 * recent_high:
+            score += 1
 
-        if score >= 1:
+        if score >= 3:
             results.append({
                 "Stock": stock["name"],
                 "Price": round(price, 2),
@@ -224,26 +200,27 @@ df = pd.DataFrame(results)
 if not df.empty:
     df = df.sort_values(by="Score", ascending=False)
 
-    # 🔥 highlight top 5
-    st.success("🔥 Top Picks")
-    st.dataframe(df.head(5))
+    st.success(f"🔥 {len(df)} stocks ready")
 
-    st.markdown("### 📊 Full List")
+    st.subheader("🏆 Top Picks")
+    st.dataframe(df.head(10))
+
+    st.subheader("📊 Full List")
     st.dataframe(df)
 
 else:
-    st.warning("No strong setups currently")
+    st.warning("No strong setups right now")
 
 # =========================
 # FINAL DECISION
 # =========================
-st.header("🎯 Final Decision")
+st.header("🎯 Action")
 
-if fii == "inflow":
-    st.success("✅ BUY ON DIPS")
+if real_rate and real_rate < 0:
+    st.success("Aggressive buying allowed")
 
-elif fii == "outflow":
-    st.error("❌ REDUCE RISK")
+elif real_rate and real_rate > 1:
+    st.error("Reduce risk")
 
 else:
-    st.warning("⚠️ WAIT & WATCH")
+    st.warning("Selective buying only")
