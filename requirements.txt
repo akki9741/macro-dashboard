@@ -1,4 +1,5 @@
 streamlit
 yfinance
-fredapi
 pandas
+requests
+fredapi
