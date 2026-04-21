@@ -9,7 +9,7 @@ st.set_page_config(page_title="India Pro Macro Dashboard", layout="wide")
 st.title("🇮🇳 Pro Macro + India Market Dashboard")
 
 # =========================
-# FRED (US MACRO)
+# FRED SETUP (US MACRO)
 # =========================
 from fredapi import Fred
 
@@ -60,17 +60,23 @@ def get_data(symbols):
             time.sleep(1)
     return None
 
-# Multi-source fallback (IMPORTANT)
-dxy = get_data(["UUP"])  # Dollar ETF
-nifty = get_data(["NIFTYBEES.NS", "^NSEI", "INDA"])  # India fallback
-bonds = get_data(["TLT"])  # US bonds
+# Multi fallback system
+dxy = get_data(["UUP"])
+nifty = get_data(["NIFTYBEES.NS", "^NSEI", "INDA", "EPI"])
+bonds = get_data(["TLT"])
 
+# =========================
+# SAFE TREND FUNCTION
+# =========================
 def get_trend(data):
+    if data is None:
+        return 0
     try:
-        if data is not None and len(data) > 5:
+        if len(data) > 5:
             return float(data["Close"].iloc[-1]) - float(data["Close"].iloc[-5])
     except:
-        return None
+        return 0
+    return 0
 
 dxy_trend = get_trend(dxy)
 nifty_trend = get_trend(nifty)
@@ -83,9 +89,9 @@ st.subheader("🌍 Global Macro")
 
 col1, col2, col3 = st.columns(3)
 
-col1.metric("US 10Y Yield", f"{us10y_val}%" if us10y_val else "N/A")
-col2.metric("Inflation (CPI YoY)", f"{cpi_val}%" if cpi_val else "N/A")
-col3.metric("Real Rate", f"{real_rate}%" if real_rate else "N/A")
+col1.metric("US 10Y Yield", f"{us10y_val}%" if us10y_val else "Fallback")
+col2.metric("Inflation (CPI YoY)", f"{cpi_val}%" if cpi_val else "Fallback")
+col3.metric("Real Rate", f"{real_rate}%" if real_rate else "Fallback")
 
 # =========================
 # LIQUIDITY SIGNAL
@@ -100,7 +106,7 @@ if real_rate is not None:
     else:
         st.error("🔴 Tight Liquidity")
 else:
-    st.info("ℹ️ Waiting for macro data")
+    st.warning("⚠️ Using fallback logic")
 
 # =========================
 # FII FLOW MODEL
@@ -109,7 +115,7 @@ st.subheader("💰 FII Flow Model")
 
 fii = "neutral"
 
-if real_rate is not None and dxy_trend is not None:
+if real_rate is not None:
     if real_rate < 0 and dxy_trend < 0:
         st.success("🟢 Strong FII Inflows")
         fii = "inflow"
@@ -117,22 +123,21 @@ if real_rate is not None and dxy_trend is not None:
         st.error("🔴 FII Outflows")
         fii = "outflow"
     else:
-        st.warning("⚖️ Mixed Flow")
+        st.warning("⚖️ Mixed / Neutral Flow")
 else:
-    st.info("ℹ️ Waiting for market data")
+    st.warning("⚠️ Using proxy signals")
 
 # =========================
 # INDIA MARKET VIEW
 # =========================
 st.subheader("📈 India Market View")
 
-if nifty_trend is not None:
-    if nifty_trend > 0:
-        st.success("🟢 Bullish Trend")
-    else:
-        st.error("🔴 Weak Trend")
+if nifty_trend > 0:
+    st.success("🟢 Bullish Trend")
+elif nifty_trend < 0:
+    st.error("🔴 Weak Trend")
 else:
-    st.info("ℹ️ Waiting for Nifty data")
+    st.warning("⚠️ Sideways Market")
 
 # =========================
 # SECTOR STRATEGY
