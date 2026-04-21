@@ -4,7 +4,8 @@ import pandas as pd
 import requests
 import time
 
-st.set_page_config(page_title="India Pro Dashboard", layout="wide")
+st.set_page_config(page_title="Pro Investing Dashboard", layout="wide")
+
 st.title("🇮🇳 Pro Macro + Stock + Gold Dashboard")
 
 # =========================
@@ -15,9 +16,7 @@ from fredapi import Fred
 fred_key = st.secrets.get("FRED_API_KEY", None)
 fred = Fred(api_key=fred_key) if fred_key else None
 
-us10y_val = None
-cpi_val = None
-real_rate = None
+us10y_val, cpi_val, real_rate = None, None, None
 
 if fred:
     try:
@@ -37,7 +36,7 @@ if us10y_val and cpi_val:
     real_rate = round(us10y_val - cpi_val, 2)
 
 # =========================
-# DATA FETCH (STABLE)
+# DATA FETCH
 # =========================
 def get_data(symbols):
     for symbol in symbols:
@@ -59,11 +58,10 @@ def get_trend(data):
         return 0
     return 0
 
-# Market proxies
+# Proxies
 dxy = get_data(["UUP"])
 nifty = get_data(["NIFTYBEES.NS", "^NSEI", "INDA"])
-bonds = get_data(["TLT"])
-gold = get_data(["GLD", "GC=F"])   # ✅ FIXED GOLD
+gold = get_data(["GLD", "GC=F"])
 
 dxy_trend = get_trend(dxy)
 nifty_trend = get_trend(nifty)
@@ -86,7 +84,7 @@ if real_rate:
     elif real_rate < 1:
         st.warning("⚠️ Neutral")
     else:
-        st.error("🔴 Tight")
+        st.error("🔴 Tight Liquidity")
 
 # =========================
 # FII MODEL
@@ -106,7 +104,7 @@ if real_rate and dxy_trend:
 # =========================
 # GOLD ANALYSIS
 # =========================
-st.header("🥇 Gold")
+st.header("🥇 Gold Position")
 
 if real_rate and gold_trend:
     if real_rate < 0 and gold_trend > 0:
@@ -119,10 +117,8 @@ else:
     st.info("Gold data loading")
 
 # =========================
-# SCREENER (FIXED)
+# SCREENER QUERY
 # =========================
-st.header("🚀 Stock Screener")
-
 query = """
 Market Capitalization > 15000 AND
 Return on capital employed > 18 AND
@@ -134,20 +130,19 @@ Interest Coverage > 4 AND
 Promoter holding > 50
 """
 
+# =========================
+# FETCH SCREENER DATA
+# =========================
 def fetch_screener():
     try:
         url = "https://www.screener.in/api/screen/results/"
-        
         headers = {
             "User-Agent": "Mozilla/5.0",
             "X-Requested-With": "XMLHttpRequest",
             "Referer": "https://www.screener.in/"
         }
 
-        payload = {
-            "query": query,
-            "limit": 100
-        }
+        payload = {"query": query, "limit": 100}
 
         session = requests.Session()
         res = session.post(url, headers=headers, data=payload)
@@ -160,23 +155,33 @@ def fetch_screener():
     except:
         pass
 
-    # 🔥 fallback
+    # fallback (never empty)
     return [
         {"name": "HDFC Bank", "code": "HDFCBANK"},
         {"name": "ICICI Bank", "code": "ICICIBANK"},
-        {"name": "L&T", "code": "LT"},
         {"name": "Reliance", "code": "RELIANCE"},
+        {"name": "L&T", "code": "LT"},
         {"name": "TCS", "code": "TCS"},
         {"name": "Infosys", "code": "INFY"}
     ]
 
+# =========================
+# SHOW RAW STOCKS
+# =========================
+st.header("📋 Raw Screener Stocks")
+
 data = fetch_screener()
 
-st.write(f"Stocks fetched: {len(data)}")  # debug
+names = [stock["name"] for stock in data]
+st.write(f"Total Stocks: {len(names)}")
+
+st.dataframe(pd.DataFrame(names, columns=["Stock Names"]))
 
 # =========================
 # RANKING ENGINE
 # =========================
+st.header("🏆 Top Opportunities")
+
 results = []
 
 for stock in data:
@@ -202,7 +207,7 @@ for stock in data:
         if momentum > 2:
             score += 2
 
-        if score >= 1:   # ✅ relaxed condition
+        if score >= 1:
             results.append({
                 "Stock": stock["name"],
                 "Price": round(price, 2),
@@ -218,7 +223,14 @@ df = pd.DataFrame(results)
 
 if not df.empty:
     df = df.sort_values(by="Score", ascending=False)
+
+    # 🔥 highlight top 5
+    st.success("🔥 Top Picks")
+    st.dataframe(df.head(5))
+
+    st.markdown("### 📊 Full List")
     st.dataframe(df)
+
 else:
     st.warning("No strong setups currently")
 
