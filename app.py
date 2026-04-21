@@ -1,31 +1,27 @@
 import streamlit as st
 import yfinance as yf
-import pandas as pd
 import time
 
 # =========================
 # PAGE CONFIG
 # =========================
 st.set_page_config(page_title="India Pro Macro Dashboard", layout="wide")
-
 st.title("🇮🇳 Pro Macro + India Market Dashboard")
 
 # =========================
-# FRED SETUP (SAFE)
+# FRED (US MACRO)
 # =========================
 from fredapi import Fred
-fred_key = st.secrets.get("FRED_API_KEY", None)
 
+fred_key = st.secrets.get("FRED_API_KEY", None)
 fred = None
+
 if fred_key:
     try:
         fred = Fred(api_key=fred_key)
     except:
         fred = None
 
-# =========================
-# FETCH FRED DATA
-# =========================
 us10y_val = None
 cpi_val = None
 real_rate = None
@@ -50,23 +46,24 @@ if us10y_val is not None and cpi_val is not None:
     real_rate = round(us10y_val - cpi_val, 2)
 
 # =========================
-# MARKET DATA (RETRY SAFE)
+# ROBUST MARKET DATA (RETRY + FALLBACK)
 # =========================
-def get_data(symbol):
-    for _ in range(3):
-        try:
-            data = yf.download(symbol, period="1mo", progress=False)
-            if data is not None and not data.empty:
-                return data
-        except:
-            pass
-        time.sleep(1)
+def get_data(symbols):
+    for symbol in symbols:
+        for _ in range(3):
+            try:
+                data = yf.download(symbol, period="1mo", progress=False)
+                if data is not None and not data.empty:
+                    return data
+            except:
+                pass
+            time.sleep(1)
     return None
 
-# ETFs (stable)
-dxy = get_data("UUP")
-nifty = get_data("NIFTYBEES.NS")
-bonds = get_data("TLT")
+# Multi-source fallback (IMPORTANT)
+dxy = get_data(["UUP"])  # Dollar ETF
+nifty = get_data(["NIFTYBEES.NS", "^NSEI", "INDA"])  # India fallback
+bonds = get_data(["TLT"])  # US bonds
 
 def get_trend(data):
     try:
@@ -80,15 +77,15 @@ nifty_trend = get_trend(nifty)
 bond_trend = get_trend(bonds)
 
 # =========================
-# DISPLAY MACRO
+# GLOBAL MACRO DISPLAY
 # =========================
 st.subheader("🌍 Global Macro")
 
 col1, col2, col3 = st.columns(3)
 
-col1.metric("US 10Y Yield", f"{us10y_val}%" if us10y_val is not None else "N/A")
-col2.metric("Inflation (CPI YoY)", f"{cpi_val}%" if cpi_val is not None else "N/A")
-col3.metric("Real Rate", f"{real_rate}%" if real_rate is not None else "N/A")
+col1.metric("US 10Y Yield", f"{us10y_val}%" if us10y_val else "N/A")
+col2.metric("Inflation (CPI YoY)", f"{cpi_val}%" if cpi_val else "N/A")
+col3.metric("Real Rate", f"{real_rate}%" if real_rate else "N/A")
 
 # =========================
 # LIQUIDITY SIGNAL
@@ -97,16 +94,16 @@ st.subheader("💧 Liquidity Signal")
 
 if real_rate is not None:
     if real_rate < 0:
-        st.success("🟢 Financial Repression → Liquidity Positive")
+        st.success("🟢 Liquidity Positive (Repression)")
     elif real_rate < 1:
         st.warning("⚠️ Neutral Zone")
     else:
         st.error("🔴 Tight Liquidity")
 else:
-    st.warning("⚠️ Macro data not available")
+    st.info("ℹ️ Waiting for macro data")
 
 # =========================
-# FII MODEL
+# FII FLOW MODEL
 # =========================
 st.subheader("💰 FII Flow Model")
 
@@ -122,7 +119,7 @@ if real_rate is not None and dxy_trend is not None:
     else:
         st.warning("⚖️ Mixed Flow")
 else:
-    st.warning("⚠️ Data incomplete")
+    st.info("ℹ️ Waiting for market data")
 
 # =========================
 # INDIA MARKET VIEW
@@ -135,7 +132,7 @@ if nifty_trend is not None:
     else:
         st.error("🔴 Weak Trend")
 else:
-    st.warning("⚠️ Nifty data unavailable")
+    st.info("ℹ️ Waiting for Nifty data")
 
 # =========================
 # SECTOR STRATEGY
