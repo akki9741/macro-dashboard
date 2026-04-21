@@ -1,44 +1,56 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-from fredapi import Fred
 import time
 
 # =========================
-# CONFIG
+# PAGE CONFIG
 # =========================
 st.set_page_config(page_title="India Pro Macro Dashboard", layout="wide")
 
 st.title("🇮🇳 Pro Macro + India Market Dashboard")
 
 # =========================
-# FRED SETUP (REAL DATA)
+# FRED SETUP (SAFE)
 # =========================
-fred = Fred(api_key="YOUR_API_KEY_HERE")
+from fredapi import Fred
+fred_key = st.secrets.get("FRED_API_KEY", None)
 
-# Get US 10Y
-try:
-    us10y = fred.get_series("DGS10").dropna()
-    us10y_val = round(us10y.iloc[-1], 2)
-except:
-    us10y_val = None
+fred = None
+if fred_key:
+    try:
+        fred = Fred(api_key=fred_key)
+    except:
+        fred = None
 
-# Get CPI
-try:
-    cpi = fred.get_series("CPIAUCSL")
-    cpi_yoy = (cpi.pct_change(12) * 100).dropna()
-    cpi_val = round(cpi_yoy.iloc[-1], 2)
-except:
-    cpi_val = None
+# =========================
+# FETCH FRED DATA
+# =========================
+us10y_val = None
+cpi_val = None
+real_rate = None
 
-# Real Rate
-if us10y_val and cpi_val:
+if fred:
+    try:
+        us10y_series = fred.get_series("DGS10").dropna()
+        if len(us10y_series) > 0:
+            us10y_val = round(float(us10y_series.iloc[-1]), 2)
+    except:
+        pass
+
+    try:
+        cpi_series = fred.get_series("CPIAUCSL")
+        cpi_yoy = (cpi_series.pct_change(12) * 100).dropna()
+        if len(cpi_yoy) > 0:
+            cpi_val = round(float(cpi_yoy.iloc[-1]), 2)
+    except:
+        pass
+
+if us10y_val is not None and cpi_val is not None:
     real_rate = round(us10y_val - cpi_val, 2)
-else:
-    real_rate = None
 
 # =========================
-# MARKET DATA (ETF PROXIES)
+# MARKET DATA (RETRY SAFE)
 # =========================
 def get_data(symbol):
     for _ in range(3):
@@ -51,29 +63,32 @@ def get_data(symbol):
         time.sleep(1)
     return None
 
+# ETFs (stable)
 dxy = get_data("UUP")
 nifty = get_data("NIFTYBEES.NS")
+bonds = get_data("TLT")
 
 def get_trend(data):
     try:
-        if len(data) > 5:
+        if data is not None and len(data) > 5:
             return float(data["Close"].iloc[-1]) - float(data["Close"].iloc[-5])
     except:
         return None
 
 dxy_trend = get_trend(dxy)
 nifty_trend = get_trend(nifty)
+bond_trend = get_trend(bonds)
 
 # =========================
-# DISPLAY CORE METRICS
+# DISPLAY MACRO
 # =========================
 st.subheader("🌍 Global Macro")
 
 col1, col2, col3 = st.columns(3)
 
-col1.metric("US 10Y Yield", f"{us10y_val}%" if us10y_val else "N/A")
-col2.metric("Inflation (CPI YoY)", f"{cpi_val}%" if cpi_val else "N/A")
-col3.metric("Real Rate", f"{real_rate}%" if real_rate else "N/A")
+col1.metric("US 10Y Yield", f"{us10y_val}%" if us10y_val is not None else "N/A")
+col2.metric("Inflation (CPI YoY)", f"{cpi_val}%" if cpi_val is not None else "N/A")
+col3.metric("Real Rate", f"{real_rate}%" if real_rate is not None else "N/A")
 
 # =========================
 # LIQUIDITY SIGNAL
@@ -88,26 +103,26 @@ if real_rate is not None:
     else:
         st.error("🔴 Tight Liquidity")
 else:
-    st.warning("Data unavailable")
+    st.warning("⚠️ Macro data not available")
 
 # =========================
 # FII MODEL
 # =========================
 st.subheader("💰 FII Flow Model")
 
+fii = "neutral"
+
 if real_rate is not None and dxy_trend is not None:
     if real_rate < 0 and dxy_trend < 0:
-        fii = "Strong Inflows"
         st.success("🟢 Strong FII Inflows")
+        fii = "inflow"
     elif real_rate > 1 and dxy_trend > 0:
-        fii = "Outflows"
         st.error("🔴 FII Outflows")
+        fii = "outflow"
     else:
-        fii = "Neutral"
         st.warning("⚖️ Mixed Flow")
 else:
-    fii = "Neutral"
-    st.warning("Data incomplete")
+    st.warning("⚠️ Data incomplete")
 
 # =========================
 # INDIA MARKET VIEW
@@ -120,32 +135,34 @@ if nifty_trend is not None:
     else:
         st.error("🔴 Weak Trend")
 else:
-    st.warning("Trend not available")
+    st.warning("⚠️ Nifty data unavailable")
 
 # =========================
-# SECTOR ROTATION
+# SECTOR STRATEGY
 # =========================
 st.subheader("🏦 Sector Strategy")
 
-if fii == "Strong Inflows":
+if fii == "inflow":
     st.markdown("""
     **🔥 Overweight:**
-    - Banks 🏦
-    - Capital Goods ⚙️
-    - Infra 🏗️
-    - Midcaps 🚀
+    - Banks 🏦  
+    - Capital Goods ⚙️  
+    - Infra 🏗️  
+    - Midcaps 🚀  
     """)
-elif fii == "Outflows":
+
+elif fii == "outflow":
     st.markdown("""
     **⚠️ Defensive:**
-    - IT 💻
-    - Pharma 💊
-    - FMCG 🛒
+    - IT 💻  
+    - Pharma 💊  
+    - FMCG 🛒  
     """)
+
 else:
     st.markdown("""
     **⚖️ Neutral:**
-    - Stock specific
+    - Stock specific approach  
     """)
 
 # =========================
@@ -153,10 +170,10 @@ else:
 # =========================
 st.subheader("🎯 Final Call")
 
-if fii == "Strong Inflows":
+if fii == "inflow":
     st.success("✅ BUY ON DIPS")
 
-elif fii == "Outflows":
+elif fii == "outflow":
     st.error("❌ REDUCE EXPOSURE")
 
 else:
@@ -172,3 +189,6 @@ if nifty is not None:
 
 if dxy is not None:
     st.line_chart(dxy["Close"])
+
+if bonds is not None:
+    st.line_chart(bonds["Close"])
