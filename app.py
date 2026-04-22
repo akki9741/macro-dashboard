@@ -1,14 +1,40 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
+import requests
 from fredapi import Fred
 
-st.set_page_config(page_title="Dynamic India Screener", layout="wide")
+st.set_page_config(layout="wide")
 
 fred = Fred(api_key=st.secrets["FRED_API_KEY"])
 
 # =========================
-# FETCH FUNCTION
+# SAFE NSE FETCH (FIXED)
+# =========================
+def get_nse_stocks():
+
+    url = "https://archives.nseindia.com/content/equities/EQUITY_L.csv"
+
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "text/csv"
+    }
+
+    try:
+        response = requests.get(url, headers=headers)
+
+        if response.status_code != 200:
+            return []
+
+        df = pd.read_csv(pd.compat.StringIO(response.text))
+
+        return [s + ".NS" for s in df["SYMBOL"].tolist()]
+
+    except:
+        return []
+
+# =========================
+# FETCH PRICE DATA
 # =========================
 def fetch(ticker):
     try:
@@ -21,11 +47,12 @@ def fetch(ticker):
             df.columns = df.columns.get_level_values(0)
 
         return df
+
     except:
         return None
 
 # =========================
-# 🇺🇸 US MACRO
+# US MACRO
 # =========================
 st.header("🇺🇸 US Macro")
 
@@ -45,26 +72,25 @@ except:
     st.warning("Macro unavailable")
 
 # =========================
-# 📊 DYNAMIC STOCK UNIVERSE
+# LOAD STOCKS
 # =========================
-st.header("📊 India Dynamic Screener")
+st.header("📊 Dynamic Screener")
 
-# 🔥 BIGGER UNIVERSE (NOT HAND-PICKED)
-stocks = pd.read_csv(
-    "https://archives.nseindia.com/content/equities/EQUITY_L.csv"
-)
+stocks = get_nse_stocks()
 
-stocks = stocks["SYMBOL"].tolist()
+if not stocks:
+    st.error("NSE blocked → Use local CSV fallback")
+    st.stop()
 
-# Convert to yfinance format
-stocks = [s + ".NS" for s in stocks]
-
-# Limit for performance (important)
-stocks = stocks[:400]
+# limit for speed
+stocks = stocks[:300]
 
 selected = []
 rejected = []
 
+# =========================
+# SCREENER LOGIC
+# =========================
 for stock in stocks:
 
     df = fetch(stock)
@@ -82,14 +108,14 @@ for stock in stocks:
         recent_high = float(close[-20:].max())
         recent_low = float(close[-20:].min())
 
-        # =========================
-        # 🎯 TRUE EARLY BREAKOUT
-        # =========================
+        # compression
         range_pct = ((recent_high - recent_low) / recent_low) * 100
         is_compressed = range_pct < 8
 
+        # breakout
         breakout = price > recent_high * 0.995
 
+        # not extended
         distance = ((price - ma20) / ma20) * 100
         not_extended = distance < 4
 
@@ -97,23 +123,12 @@ for stock in stocks:
 
             selected.append({
                 "Stock": stock,
-                "Momentum %": round(distance, 2),
+                "Momentum %": round(distance,2),
                 "Reason": "Compression + Fresh Breakout"
             })
 
         else:
-            reason = []
-
-            if not is_compressed:
-                reason.append("No base")
-
-            if not breakout:
-                reason.append("No breakout")
-
-            if not not_extended:
-                reason.append("Extended")
-
-            rejected.append((stock, ", ".join(reason)))
+            rejected.append((stock, "No early setup"))
 
     except:
         rejected.append((stock, "Error"))
@@ -124,14 +139,10 @@ for stock in stocks:
 st.subheader("🚀 Early Breakout Stocks")
 
 if selected:
-    df_sel = pd.DataFrame(selected).sort_values(by="Momentum %")
-    st.dataframe(df_sel.head(5))   # only top 5
+    st.dataframe(pd.DataFrame(selected).head(5))
 else:
-    st.warning("No early setups")
+    st.warning("No setups right now")
 
-# =========================
-# WHY NOT SELECTED
-# =========================
-st.subheader("🧠 Rejected Stocks")
+st.subheader("🧠 Rejected")
 
 st.dataframe(pd.DataFrame(rejected[:50], columns=["Stock","Reason"]))
