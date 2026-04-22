@@ -1,17 +1,15 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import requests
 import time
+from fredapi import Fred
 
-st.set_page_config(page_title="Pro Macro + Screener", layout="wide")
-st.title("🇮🇳 Macro + Early Uptrend Screener")
+st.set_page_config(page_title="Pro Market Dashboard", layout="wide")
+st.title("🇮🇳 Pro Macro + Stock Screener (Stable Version)")
 
 # =========================
 # FRED MACRO
 # =========================
-from fredapi import Fred
-
 fred_key = st.secrets.get("FRED_API_KEY", None)
 fred = Fred(api_key=fred_key) if fred_key else None
 
@@ -35,35 +33,27 @@ if us10y_val and cpi_val:
     real_rate = round(us10y_val - cpi_val, 2)
 
 # =========================
-# DATA HELPERS
+# GOLD FIX (RELIABLE)
 # =========================
-def get_data(symbols):
-    for symbol in symbols:
-        for _ in range(3):
-            try:
-                data = yf.download(symbol, period="3mo", progress=False)
-                if data is not None and not data.empty:
-                    return data
-            except:
-                pass
-            time.sleep(1)
+def get_gold():
+    for symbol in ["GC=F", "GLD"]:
+        try:
+            df = yf.download(symbol, period="3mo", progress=False)
+            if df is not None and not df.empty:
+                return df
+        except:
+            pass
+        time.sleep(1)
     return None
 
-def get_trend(data):
+gold = get_gold()
+
+def get_trend(df):
     try:
-        if data is not None and len(data) > 5:
-            return float(data["Close"].iloc[-1]) - float(data["Close"].iloc[-5])
+        return df["Close"].iloc[-1] - df["Close"].iloc[-5]
     except:
         return 0
-    return 0
 
-# =========================
-# MARKET PROXIES
-# =========================
-dxy = get_data(["UUP"])
-gold = get_data(["GLD", "GC=F"])
-
-dxy_trend = get_trend(dxy)
 gold_trend = get_trend(gold)
 
 # =========================
@@ -76,73 +66,56 @@ col1.metric("US 10Y", f"{us10y_val}%" if us10y_val else "N/A")
 col2.metric("CPI YoY", f"{cpi_val}%" if cpi_val else "N/A")
 col3.metric("Real Rate", f"{real_rate}%" if real_rate else "N/A")
 
-# Market signal
+# =========================
+# MARKET SIGNAL
+# =========================
 st.subheader("💧 Market Signal")
+
 if real_rate:
     if real_rate < 0:
-        st.success("🟢 Liquidity supportive → Risk ON")
+        st.success("🟢 Bullish Liquidity")
     elif real_rate < 1:
         st.warning("⚠️ Neutral → Selective buying")
     else:
-        st.error("🔴 Tight liquidity → Risk OFF")
+        st.error("🔴 Tight liquidity")
 
 # =========================
 # GOLD VIEW
 # =========================
 st.subheader("🥇 Gold View")
 
-if real_rate and gold_trend:
-    if real_rate < 0:
+if gold is not None:
+    if real_rate and real_rate < 0:
         st.success("🟢 HOLD / ADD GOLD")
-    elif real_rate > 1:
+    elif real_rate and real_rate > 1:
         st.warning("⚠️ HOLD (avoid adding)")
     else:
-        st.info("⚖️ Neutral gold")
+        st.info("⚖️ Neutral Gold")
 else:
-    st.info("Gold data loading")
+    st.error("Gold data failed")
 
 # =========================
-# SCREENER QUERY
+# STOCK UNIVERSE (NIFTY STYLE)
 # =========================
-query = """
-Market Capitalization > 15000 AND
-Return on capital employed > 18 AND
-Return on equity > 15 AND
-Debt to equity < 0.5 AND
-Sales growth 5Years > 10 AND
-Profit growth 5Years > 12 AND
-Interest Coverage > 4 AND
-Promoter holding > 50
-"""
+def get_stock_list():
+    return [
+        "RELIANCE.NS","HDFCBANK.NS","ICICIBANK.NS","INFY.NS","TCS.NS",
+        "LT.NS","SBIN.NS","AXISBANK.NS","KOTAKBANK.NS","BAJFINANCE.NS",
+        "ITC.NS","HINDUNILVR.NS","ASIANPAINT.NS","MARUTI.NS","SUNPHARMA.NS",
+        "NTPC.NS","POWERGRID.NS","TITAN.NS","ULTRACEMCO.NS","WIPRO.NS",
+        "TECHM.NS","HCLTECH.NS","ADANIENT.NS","ADANIPORTS.NS","JSWSTEEL.NS",
+        "TATASTEEL.NS","COALINDIA.NS","ONGC.NS","BPCL.NS","IOC.NS"
+    ]
+
+stocks = get_stock_list()
 
 # =========================
-# FETCH SCREENER DATA
+# SHOW STOCK LIST
 # =========================
-def fetch_screener():
-    try:
-        url = "https://www.screener.in/api/screen/results/"
-        headers = {
-            "User-Agent": "Mozilla/5.0",
-            "X-Requested-With": "XMLHttpRequest",
-            "Referer": "https://www.screener.in/"
-        }
-        payload = {"query": query, "limit": 200}
-        session = requests.Session()
-        res = session.post(url, headers=headers, data=payload)
-        return res.json().get("data", [])
-    except:
-        return []
+st.header("📋 Stock Universe")
 
-data = fetch_screener()
-
-# =========================
-# RAW STOCK LIST
-# =========================
-st.header("📋 Screener Stocks")
-
-names = [stock["name"] for stock in data]
-st.write(f"Total Stocks: {len(names)}")
-st.dataframe(pd.DataFrame(names, columns=["Stock Names"]))
+st.write(f"Total Stocks: {len(stocks)}")
+st.dataframe(pd.DataFrame(stocks, columns=["Stocks"]))
 
 # =========================
 # DIAGNOSTICS
@@ -151,17 +124,11 @@ st.header("🧠 Why Stocks Are Not Selected")
 
 diagnostics = []
 
-for stock in data:
+for ticker in stocks:
     try:
-        ticker = stock["code"] + ".NS"
         df = yf.download(ticker, period="3mo", progress=False)
 
         if df is None or len(df) < 50:
-            diagnostics.append({
-                "Stock": stock["name"],
-                "Status": "Skipped",
-                "Reason": "Insufficient data"
-            })
             continue
 
         close = df["Close"]
@@ -173,49 +140,40 @@ for stock in data:
         momentum = ((price - close.iloc[-5]) / close.iloc[-5]) * 100
         recent_high = close[-20:].max()
 
-        cond1 = price > ma20
-        cond2 = ma20 > ma50
-        cond3 = momentum > 1
-        cond4 = price >= 0.98 * recent_high
-
         reasons = []
-        if not cond1:
+
+        if price < ma20:
             reasons.append("Below 20DMA")
-        if not cond2:
+        if ma20 < ma50:
             reasons.append("Weak Trend")
-        if not cond3:
+        if momentum < 1:
             reasons.append("Low Momentum")
-        if not cond4:
+        if price < 0.98 * recent_high:
             reasons.append("Not near breakout")
 
-        status = "Selected" if cond1 and cond2 and cond3 and cond4 else "Rejected"
+        status = "Selected" if len(reasons) == 0 else "Rejected"
 
         diagnostics.append({
-            "Stock": stock["name"],
-            "Momentum %": round(momentum, 2),
+            "Stock": ticker,
+            "Momentum %": round(momentum,2),
             "Status": status,
             "Reason": ", ".join(reasons)
         })
 
     except:
-        diagnostics.append({
-            "Stock": stock["name"],
-            "Status": "Error",
-            "Reason": "Data issue"
-        })
+        pass
 
 st.dataframe(pd.DataFrame(diagnostics))
 
 # =========================
-# EARLY UPTREND (MAIN LOGIC)
+# EARLY UPTREND DETECTION
 # =========================
 st.header("🎯 Stocks About to Enter Uptrend")
 
 early_list = []
 
-for stock in data:
+for ticker in stocks:
     try:
-        ticker = stock["code"] + ".NS"
         df = yf.download(ticker, period="3mo", progress=False)
 
         if df is None or len(df) < 50:
@@ -230,53 +188,41 @@ for stock in data:
         momentum = ((price - close.iloc[-5]) / close.iloc[-5]) * 100
         recent_high = close[-20:].max()
 
-        cond1 = price > (0.97 * ma20) and price < (1.05 * ma20)
-        cond2 = ma20 >= (0.98 * ma50)
-        cond3 = momentum > 0 and momentum < 3
-        cond4 = price >= (0.90 * recent_high) and price < recent_high
+        cond1 = abs(price - ma20)/ma20 < 0.03
+        cond2 = ma20 >= ma50 * 0.98
+        cond3 = 0 < momentum < 3
+        cond4 = price >= 0.90 * recent_high
 
         score = sum([cond1, cond2, cond3, cond4])
 
         if score >= 3:
             early_list.append({
-                "Stock": stock["name"],
-                "Price": round(price, 2),
-                "Momentum %": round(momentum, 2),
-                "Entry Zone": round(ma20, 2),
-                "Breakout Level": round(recent_high, 2),
-                "Score": score
+                "Stock": ticker,
+                "Price": round(price,2),
+                "Entry": round(ma20,2),
+                "Breakout": round(recent_high,2),
+                "Momentum": round(momentum,2)
             })
 
     except:
         pass
 
-early_df = pd.DataFrame(early_list)
+df_early = pd.DataFrame(early_list)
 
-if not early_df.empty:
-    early_df = early_df.sort_values(by="Score", ascending=False)
-
-    st.success(f"🔥 {len(early_df)} stocks preparing for breakout")
-    st.dataframe(early_df)
-
-    st.markdown("""
-    **Action Plan:**
-    - Buy near Entry Zone (20DMA)
-    - Add on breakout above Breakout Level
-    """)
-
+if not df_early.empty:
+    st.success(f"{len(df_early)} stocks ready")
+    st.dataframe(df_early)
 else:
-    st.warning("⚠️ No stocks ready yet")
+    st.warning("No stocks ready yet")
 
 # =========================
-# FINAL ACTION
+# FINAL STRATEGY
 # =========================
 st.header("🎯 Final Strategy")
 
 if real_rate and real_rate < 0:
-    st.success("Aggressive buying allowed")
-
+    st.success("Aggressive buying")
 elif real_rate and real_rate > 1:
     st.error("Reduce risk")
-
 else:
     st.warning("Selective buying only")
