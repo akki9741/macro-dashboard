@@ -3,20 +3,20 @@ import yfinance as yf
 import pandas as pd
 from fredapi import Fred
 
+# =========================
+# SETUP
+# =========================
 st.set_page_config(page_title="Macro + India Dashboard", layout="wide")
 
 fred = Fred(api_key=st.secrets["FRED_API_KEY"])
 
-# =========================
-# SAFE FETCH FUNCTION
-# =========================
 def fetch(ticker, period="6mo"):
     try:
         df = yf.download(ticker, period=period, progress=False)
         if df is None or df.empty:
             return None
 
-        # ✅ FIX multi-column issue
+        # Fix multi-index issue
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
 
@@ -25,7 +25,7 @@ def fetch(ticker, period="6mo"):
         return None
 
 # =========================
-# 🇺🇸 US MACRO FIXED
+# 🇺🇸 US MACRO
 # =========================
 st.header("🇺🇸 US Financial Repression")
 
@@ -35,14 +35,13 @@ try:
 
     if us10y is None or cpi is None or len(cpi) < 12:
         st.warning("US macro data unavailable")
+        macro_signal = "NEUTRAL"
 
     else:
-        # ✅ CRITICAL FIX
         us10y_val = float(us10y["Close"].dropna().iloc[-1]) / 10
 
         cpi_latest = float(cpi.dropna().iloc[-1])
         cpi_prev = float(cpi.dropna().iloc[-12])
-
         cpi_yoy = ((cpi_latest / cpi_prev) - 1) * 100
 
         real_rate = us10y_val - cpi_yoy
@@ -67,7 +66,7 @@ except Exception as e:
     macro_signal = "NEUTRAL"
 
 # =========================
-# 🇮🇳 STOCK SCREENER FIXED
+# 🇮🇳 INDIA SCREENER
 # =========================
 st.header("📊 India Smart Screener")
 
@@ -81,7 +80,7 @@ stocks = [
     "COALINDIA.NS","IOC.NS","BPCL.NS","GRASIM.NS","JSWSTEEL.NS"
 ]
 
-selected = []
+selected_data = []
 rejected = []
 
 for stock in stocks:
@@ -94,7 +93,6 @@ for stock in stocks:
     try:
         close = df["Close"].dropna()
 
-        # ✅ CRITICAL FIX (SCALAR VALUES)
         price = float(close.iloc[-1])
         ma20 = float(close.rolling(20).mean().iloc[-1])
         ma50 = float(close.rolling(50).mean().iloc[-1])
@@ -103,9 +101,35 @@ for stock in stocks:
             rejected.append((stock, "NaN values"))
             continue
 
-        # ✅ TREND LOGIC
+        # =========================
+        # 🚀 UPTREND LOGIC
+        # =========================
         if price > ma20 and ma20 > ma50:
-            selected.append(stock)
+
+            momentum = ((price - ma20) / ma20) * 100
+            trend_strength = ((ma20 - ma50) / ma50) * 100
+
+            reasons = []
+
+            if price > ma20:
+                reasons.append("Above 20DMA")
+
+            if ma20 > ma50:
+                reasons.append("20DMA > 50DMA")
+
+            if momentum > 2:
+                reasons.append("Strong momentum")
+
+            if trend_strength > 1:
+                reasons.append("Trend strength good")
+
+            selected_data.append({
+                "Stock": stock,
+                "Momentum %": round(momentum, 2),
+                "Trend %": round(trend_strength, 2),
+                "Reason": ", ".join(reasons)
+            })
+
         else:
             reason = []
             if price <= ma20:
@@ -115,38 +139,42 @@ for stock in stocks:
 
             rejected.append((stock, ", ".join(reason)))
 
-    except Exception as e:
-        rejected.append((stock, f"Calc error"))
+    except:
+        rejected.append((stock, "Calculation error"))
 
 # =========================
-# OUTPUT
+# 🚀 SELECTED STOCKS
 # =========================
 st.subheader("🚀 Stocks About to Enter Uptrend")
 
-if selected:
-    for s in selected[:5]:
-        st.success(s)
+if selected_data:
+    df_selected = pd.DataFrame(selected_data).sort_values(
+        by="Momentum %", ascending=False
+    )
+
+    st.dataframe(df_selected)
+
 else:
     st.warning("No strong stocks right now")
 
 # =========================
-# WHY REJECTED
+# 🧠 REJECTED STOCKS
 # =========================
 st.subheader("🧠 Why Stocks Were Rejected")
 
-df = pd.DataFrame(rejected, columns=["Stock", "Reason"])
-st.dataframe(df)
+df_rej = pd.DataFrame(rejected, columns=["Stock", "Reason"])
+st.dataframe(df_rej)
 
 # =========================
-# FINAL DECISION
+# 🎯 FINAL STRATEGY
 # =========================
 st.header("🎯 Final Decision")
 
-if macro_signal == "BULLISH" and selected:
-    st.success("BUY → Focus on shortlisted stocks")
+if macro_signal == "BULLISH" and selected_data:
+    st.success("BUY MODE → Focus on top momentum stocks")
 
 elif macro_signal == "NEUTRAL":
-    st.warning("Selective Buying")
+    st.warning("Selective Buying → Only strong setups")
 
 else:
-    st.error("Avoid risk")
+    st.error("Risk-Off → Avoid aggressive buying")
