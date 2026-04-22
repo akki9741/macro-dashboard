@@ -43,8 +43,7 @@ try:
         macro_signal = "NEUTRAL"
 
     else:
-        us10y_val = float(us10y["Close"].dropna().iloc[-1]) / 10
-
+        us10y_val = float(us10y["Close"].iloc[-1])
         cpi = cpi.dropna()
         cpi_latest = float(cpi.iloc[-1])
         cpi_prev = float(cpi.iloc[-12])
