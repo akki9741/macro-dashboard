@@ -6,7 +6,7 @@ from fredapi import Fred
 # =========================
 # SETUP
 # =========================
-st.set_page_config(page_title="Macro + India Dashboard", layout="wide")
+st.set_page_config(page_title="Macro + India Early Trend Dashboard", layout="wide")
 
 fred = Fred(api_key=st.secrets["FRED_API_KEY"])
 
@@ -66,9 +66,9 @@ except Exception as e:
     macro_signal = "NEUTRAL"
 
 # =========================
-# 🇮🇳 INDIA SCREENER
+# 🇮🇳 STOCK UNIVERSE
 # =========================
-st.header("📊 India Smart Screener")
+st.header("📊 India Early Trend Screener")
 
 stocks = [
     "RELIANCE.NS","TCS.NS","INFY.NS","HDFCBANK.NS","ICICIBANK.NS",
@@ -97,31 +97,34 @@ for stock in stocks:
         ma20 = float(close.rolling(20).mean().iloc[-1])
         ma50 = float(close.rolling(50).mean().iloc[-1])
 
+        recent_high = float(close[-20:].max())
+
         if pd.isna(price) or pd.isna(ma20) or pd.isna(ma50):
             rejected.append((stock, "NaN values"))
             continue
 
         # =========================
-        # 🚀 UPTREND LOGIC
+        # 🚀 EARLY UPTREND LOGIC
         # =========================
-        if price > ma20 and ma20 > ma50:
+        is_breakout = price > ma20
+        is_near_cross = ma20 > (ma50 * 0.98)
+        is_near_high = price > (recent_high * 0.97)
+
+        if is_breakout and is_near_cross and is_near_high:
 
             momentum = ((price - ma20) / ma20) * 100
             trend_strength = ((ma20 - ma50) / ma50) * 100
 
             reasons = []
 
-            if price > ma20:
-                reasons.append("Above 20DMA")
+            if is_breakout:
+                reasons.append("Breakout above 20DMA")
 
-            if ma20 > ma50:
-                reasons.append("20DMA > 50DMA")
+            if is_near_cross:
+                reasons.append("20DMA near bullish crossover")
 
-            if momentum > 2:
-                reasons.append("Strong momentum")
-
-            if trend_strength > 1:
-                reasons.append("Trend strength good")
+            if is_near_high:
+                reasons.append("Near resistance breakout")
 
             selected_data.append({
                 "Stock": stock,
@@ -132,10 +135,15 @@ for stock in stocks:
 
         else:
             reason = []
-            if price <= ma20:
+
+            if not is_breakout:
                 reason.append("Below 20DMA")
-            if ma20 <= ma50:
-                reason.append("Weak trend")
+
+            if not is_near_cross:
+                reason.append("No MA crossover setup")
+
+            if not is_near_high:
+                reason.append("Far from breakout level")
 
             rejected.append((stock, ", ".join(reason)))
 
@@ -151,11 +159,9 @@ if selected_data:
     df_selected = pd.DataFrame(selected_data).sort_values(
         by="Momentum %", ascending=False
     )
-
     st.dataframe(df_selected)
-
 else:
-    st.warning("No strong stocks right now")
+    st.warning("No early breakout stocks right now")
 
 # =========================
 # 🧠 REJECTED STOCKS
@@ -166,15 +172,15 @@ df_rej = pd.DataFrame(rejected, columns=["Stock", "Reason"])
 st.dataframe(df_rej)
 
 # =========================
-# 🎯 FINAL STRATEGY
+# 🎯 FINAL DECISION
 # =========================
-st.header("🎯 Final Decision")
+st.header("🎯 Final Strategy")
 
 if macro_signal == "BULLISH" and selected_data:
-    st.success("BUY MODE → Focus on top momentum stocks")
+    st.success("BUY EARLY → Focus on breakout candidates")
 
 elif macro_signal == "NEUTRAL":
-    st.warning("Selective Buying → Only strong setups")
+    st.warning("Selective buying only")
 
 else:
-    st.error("Risk-Off → Avoid aggressive buying")
+    st.error("Avoid risk → Weak macro")
