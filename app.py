@@ -1,16 +1,17 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
+import time
 
 st.set_page_config(layout="wide")
-st.title("🚀 Pro Macro + India Stock Screener")
+st.title("🚀 Pro Macro + Smart Stock Screener")
 
 # =========================
-# SAFE DOWNLOAD FUNCTION
+# SAFE FETCH FUNCTION
 # =========================
 def fetch(ticker, period="6mo"):
     try:
-        df = yf.download(ticker, period=period, progress=False)
+        df = yf.download(ticker, period=period, progress=False, threads=False)
         if df is not None and not df.empty and len(df) > 50:
             return df
     except:
@@ -18,30 +19,25 @@ def fetch(ticker, period="6mo"):
     return None
 
 # =========================
-# 🇺🇸 US MACRO (REPRESSION)
+# 🇺🇸 US MACRO
 # =========================
 st.header("🇺🇸 US Financial Repression")
 
-# US 10Y
 tnx = fetch("^TNX", "5d")
 us10y = round(tnx["Close"].iloc[-1] / 10, 2) if tnx is not None else None
 
-# CPI (fallback static — stable)
-cpi = 3.2
+cpi = 3.2  # stable fallback
 
-# DXY
-dxy = fetch("DX-Y.NYB", "5d")
-dxy_val = round(dxy["Close"].iloc[-1], 2) if dxy is not None else None
-
-# Real Rate
-real_rate = round(us10y - cpi, 2) if us10y else None
+if us10y is not None:
+    real_rate = round(us10y - cpi, 2)
+else:
+    real_rate = None
 
 col1, col2, col3 = st.columns(3)
 col1.metric("US 10Y", f"{us10y}%" if us10y else "N/A")
 col2.metric("CPI", f"{cpi}%")
 col3.metric("Real Rate", f"{real_rate}%" if real_rate else "N/A")
 
-# Signal
 if real_rate is None:
     st.warning("Data unavailable")
 elif real_rate < 0:
@@ -52,26 +48,31 @@ else:
     st.error("❌ Tight Liquidity → Risk-Off")
 
 # =========================
-# 🪙 GOLD
+# 🪙 GOLD (FIXED)
 # =========================
 st.header("🪙 Gold View")
 
 gold = fetch("GC=F", "3mo")
+
 if gold is not None:
-    price = round(gold["Close"].iloc[-1], 2)
-    ma20 = gold["Close"].rolling(20).mean().iloc[-1]
+    close = gold["Close"]
+    price = float(close.iloc[-1])
+    ma20 = float(close.rolling(20).mean().iloc[-1])
 
-    if price > ma20:
-        st.success(f"Gold Bullish ({price})")
+    if pd.isna(price) or pd.isna(ma20):
+        st.warning("Gold data incomplete")
     else:
-        st.warning(f"Gold Cooling ({price})")
+        if price > ma20:
+            st.success(f"Gold Bullish ({round(price,2)})")
+        else:
+            st.warning(f"Gold Cooling ({round(price,2)})")
 
-    st.line_chart(gold["Close"])
+    st.line_chart(close)
 else:
     st.error("Gold data failed")
 
 # =========================
-# 📋 NSE STOCK LIST (DYNAMIC)
+# NSE STOCK LIST
 # =========================
 @st.cache_data(ttl=86400)
 def get_nse():
@@ -79,7 +80,7 @@ def get_nse():
     df = pd.read_csv(url)
     return [s + ".NS" for s in df["SYMBOL"].tolist()]
 
-stocks = get_nse()[:300]
+stocks = get_nse()[:250]
 
 st.header("📊 NSE Universe")
 st.write(f"Stocks Loaded: {len(stocks)}")
@@ -100,22 +101,24 @@ for s in stocks:
 
     ma50 = close.rolling(50).mean().iloc[-1]
     ma100 = close.rolling(100).mean().iloc[-1]
-    volatility = close.pct_change().std()
+    vol = close.pct_change().std()
 
     if (
         close.iloc[-1] > ma50
         and ma50 > ma100
-        and volatility < 0.035
+        and vol < 0.04
     ):
         quality.append(s)
 
+    time.sleep(0.15)  # prevent API block
+
 quality = quality[:60]
 
-st.success(f"{len(quality)} stocks shortlisted")
+st.success(f"{len(quality)} stocks passed quality filter")
 st.dataframe(pd.DataFrame(quality, columns=["Stocks"]))
 
 # =========================
-# STEP 2 → EARLY UPTREND
+# STEP 2 → EARLY UPTREND (SCORING BASED)
 # =========================
 st.header("🎯 Stocks About to Enter Uptrend")
 
@@ -128,33 +131,35 @@ for s in quality:
         continue
 
     close = df["Close"]
-    price = close.iloc[-1]
+    price = float(close.iloc[-1])
 
-    ma20 = close.rolling(20).mean().iloc[-1]
-    ma50 = close.rolling(50).mean().iloc[-1]
+    ma20 = float(close.rolling(20).mean().iloc[-1])
+    ma50 = float(close.rolling(50).mean().iloc[-1])
 
     momentum = ((price - close.iloc[-5]) / close.iloc[-5]) * 100
     high = close[-20:].max()
 
+    cond1 = abs(price - ma20)/ma20 < 0.04
+    cond2 = ma20 >= ma50 * 0.95
+    cond3 = -1 < momentum < 3.5
+    cond4 = price >= 0.88 * high
+
+    score = sum([cond1, cond2, cond3, cond4])
+
     reasons = []
-
-    cond1 = abs(price - ma20) / ma20 < 0.025
-    cond2 = ma20 >= ma50 * 0.98
-    cond3 = 0 < momentum < 2.5
-    cond4 = price >= 0.92 * high
-
     if not cond1:
-        reasons.append("Not near support")
+        reasons.append("Far from support")
     if not cond2:
         reasons.append("Weak trend")
     if not cond3:
-        reasons.append("Momentum low/high")
+        reasons.append("Momentum issue")
     if not cond4:
         reasons.append("No breakout setup")
 
-    if cond1 and cond2 and cond3 and cond4:
+    if score >= 3:
         selected.append({
             "Stock": s,
+            "Score": score,
             "Entry": round(ma20,2),
             "Breakout": round(high,2),
             "Momentum": round(momentum,2)
@@ -165,26 +170,30 @@ for s in quality:
             "Reason": ", ".join(reasons)
         })
 
-selected = selected[:5]
+    time.sleep(0.15)
+
+selected = sorted(selected, key=lambda x: x["Score"], reverse=True)[:5]
 
 # =========================
-# DISPLAY SELECTED
+# DISPLAY RESULTS
 # =========================
+st.write(f"Selected stocks: {len(selected)}")
+
 if selected:
-    st.success(f"{len(selected)} High Probability Stocks")
+    st.success("🔥 High Probability Stocks")
     st.dataframe(pd.DataFrame(selected))
 else:
-    st.warning("No stocks ready")
+    st.warning("No strong setups (market sideways)")
 
 # =========================
 # DIAGNOSTICS
 # =========================
-st.header("🧠 Why Stocks Are Not Selected")
+st.header("🧠 Why Stocks Not Selected")
 
 if rejected:
     st.dataframe(pd.DataFrame(rejected))
 else:
-    st.write("All passed (rare case)")
+    st.write("All passed")
 
 # =========================
 # FINAL STRATEGY
@@ -192,7 +201,7 @@ else:
 st.header("🎯 Final Strategy")
 
 if real_rate and real_rate < 1:
-    st.warning("Selective buying only — Focus on breakouts")
+    st.warning("Selective buying — focus on breakout stocks only")
 elif real_rate and real_rate >= 1:
     st.error("Avoid aggressive buying")
 else:
