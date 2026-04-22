@@ -75,7 +75,9 @@ except Exception as e:
 # =========================
 st.header("📊 India Early Breakout Screener")
 
-stocks = [
+
+
+base_stocks = [
     "RELIANCE.NS","TCS.NS","INFY.NS","HDFCBANK.NS","ICICIBANK.NS",
     "SBIN.NS","LT.NS","AXISBANK.NS","ITC.NS","HCLTECH.NS",
     "ASIANPAINT.NS","MARUTI.NS","SUNPHARMA.NS","TATAMOTORS.NS",
@@ -84,6 +86,15 @@ stocks = [
     "ADANIENT.NS","ADANIPORTS.NS","TATASTEEL.NS","ONGC.NS",
     "COALINDIA.NS","IOC.NS","BPCL.NS","GRASIM.NS","JSWSTEEL.NS"
 ]
+
+# 👉 Your added stocks
+custom_stocks = [
+    "TRITURBINE.NS",   # Triveni Turbine
+    "ECLERX.NS"        # eClerx Services
+]
+
+# Merge + remove duplicates
+stocks = list(set(base_stocks + custom_stocks))
 
 selected_data = []
 rejected = []
