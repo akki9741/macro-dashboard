@@ -1,7 +1,6 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import numpy as np
 from fredapi import Fred
 
 # =========================
@@ -19,7 +18,7 @@ def fetch(ticker, period="6mo"):
         return None
 
 # =========================
-# 🇺🇸 US FINANCIAL REPRESSION
+# 🇺🇸 US MACRO (CORE SIGNAL)
 # =========================
 st.header("🇺🇸 US Financial Repression")
 
@@ -36,54 +35,31 @@ try:
         real_rate = us10y_val - cpi_yoy
 
         col1, col2, col3 = st.columns(3)
-        col1.metric("US 10Y", f"{round(us10y_val,2)}%")
+        col1.metric("US 10Y Yield", f"{round(us10y_val,2)}%")
         col2.metric("CPI YoY", f"{round(cpi_yoy,2)}%")
         col3.metric("Real Rate", f"{round(real_rate,2)}%")
 
+        # SIGNAL
         if real_rate < 0:
-            st.success("Liquidity Positive (Bullish)")
+            macro_signal = "BULLISH"
+            st.success("Liquidity Positive → Bullish for equities")
         elif real_rate > 1.5:
-            st.error("Liquidity Tightening")
+            macro_signal = "BEARISH"
+            st.error("Liquidity Tightening → Risk-Off")
         else:
-            st.warning("Neutral Zone")
+            macro_signal = "NEUTRAL"
+            st.warning("Neutral Zone → Selective buying")
 
 except Exception as e:
-    st.error(f"US macro error: {e}")
+    st.error(f"Macro error: {e}")
+    macro_signal = "NEUTRAL"
 
 # =========================
-# 🪙 GOLD
+# 📊 INDIA STOCK SCREENER
 # =========================
-st.header("🪙 Gold View")
+st.header("📊 India Smart Screener")
 
-gold = fetch("GC=F", "3mo")
-
-if gold is None or gold.empty:
-    st.warning("Gold data unavailable")
-else:
-    close = gold["Close"].dropna()
-
-    if len(close) < 25:
-        st.warning("Gold data insufficient")
-    else:
-        price = float(close.iloc[-1])
-        ma20 = float(close.rolling(20).mean().iloc[-1])
-
-        if pd.isna(price) or pd.isna(ma20):
-            st.warning("Gold data incomplete")
-        else:
-            if price > ma20:
-                st.success(f"Bullish ({round(price,2)})")
-            else:
-                st.warning(f"Cooling ({round(price,2)})")
-
-        st.line_chart(close)
-
-# =========================
-# 📊 NSE STOCK UNIVERSE
-# =========================
-st.header("📊 Stock Screener (Dynamic)")
-
-# Large universe (you can expand)
+# Large dynamic universe
 stocks = [
     "RELIANCE.NS","TCS.NS","INFY.NS","HDFCBANK.NS","ICICIBANK.NS",
     "SBIN.NS","LT.NS","AXISBANK.NS","ITC.NS","HCLTECH.NS",
@@ -101,7 +77,7 @@ for stock in stocks:
     data = fetch(stock)
 
     if data is None or len(data) < 60:
-        rejected.append((stock, "Insufficient data"))
+        rejected.append((stock, "No/low data"))
         continue
 
     close = data["Close"].dropna()
@@ -111,7 +87,7 @@ for stock in stocks:
         ma20 = float(close.rolling(20).mean().iloc[-1])
         ma50 = float(close.rolling(50).mean().iloc[-1])
 
-        # Uptrend logic
+        # 🔥 Uptrend Detection Logic
         if price > ma20 and ma20 > ma50:
             selected.append(stock)
         else:
@@ -126,7 +102,7 @@ for stock in stocks:
         rejected.append((stock, "Calculation error"))
 
 # =========================
-# 🎯 RESULTS
+# 🚀 FINAL STOCK OUTPUT
 # =========================
 st.subheader("🚀 Stocks About to Enter Uptrend")
 
@@ -134,7 +110,7 @@ if selected:
     for s in selected[:5]:
         st.success(s)
 else:
-    st.warning("No strong setups right now")
+    st.warning("No strong stocks right now")
 
 # =========================
 # 🧠 WHY NOT SELECTED
@@ -147,9 +123,13 @@ st.dataframe(df)
 # =========================
 # 🎯 FINAL STRATEGY
 # =========================
-st.header("🎯 Final Strategy")
+st.header("🎯 Final Decision")
 
-if selected:
-    st.success("Selective buying → Focus on shortlisted stocks")
+if macro_signal == "BULLISH" and selected:
+    st.success("BUY MODE → Focus on shortlisted stocks")
+
+elif macro_signal == "NEUTRAL":
+    st.warning("Selective Buying → Only strong setups")
+
 else:
-    st.warning("WAIT & WATCH → No high probability trades")
+    st.error("Avoid Risk → Market under pressure")
