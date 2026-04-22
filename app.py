@@ -24,14 +24,17 @@ def fetch(ticker, period="6mo"):
 st.header("🇺🇸 US Financial Repression")
 
 tnx = fetch("^TNX", "5d")
-us10y = round(tnx["Close"].iloc[-1] / 10, 2) if tnx is not None else None
+us10y = None
+if tnx is not None:
+    try:
+        us10y = float(tnx["Close"].dropna().iloc[-1]) / 10
+        us10y = round(us10y, 2)
+    except:
+        us10y = None
 
-cpi = 3.2  # stable fallback
+cpi = 3.2
 
-if us10y is not None:
-    real_rate = round(us10y - cpi, 2)
-else:
-    real_rate = None
+real_rate = round(us10y - cpi, 2) if us10y is not None else None
 
 col1, col2, col3 = st.columns(3)
 col1.metric("US 10Y", f"{us10y}%" if us10y else "N/A")
@@ -48,28 +51,40 @@ else:
     st.error("❌ Tight Liquidity → Risk-Off")
 
 # =========================
-# 🪙 GOLD (FIXED)
+# 🪙 GOLD (CRASH-PROOF)
 # =========================
 st.header("🪙 Gold View")
 
 gold = fetch("GC=F", "3mo")
 
-if gold is not None:
-    close = gold["Close"]
-    price = float(close.iloc[-1])
-    ma20 = float(close.rolling(20).mean().iloc[-1])
+if gold is None or gold.empty:
+    st.error("Gold data not available")
 
-    if pd.isna(price) or pd.isna(ma20):
-        st.warning("Gold data incomplete")
-    else:
-        if price > ma20:
-            st.success(f"Gold Bullish ({round(price,2)})")
-        else:
-            st.warning(f"Gold Cooling ({round(price,2)})")
-
-    st.line_chart(close)
 else:
-    st.error("Gold data failed")
+    close = gold["Close"].dropna()
+
+    if len(close) < 25:
+        st.warning("Gold data insufficient")
+    else:
+        try:
+            price = close.iloc[-1]
+            ma20 = close.rolling(20).mean().iloc[-1]
+
+            if pd.isna(price) or pd.isna(ma20):
+                st.warning("Gold data incomplete")
+            else:
+                price = float(price)
+                ma20 = float(ma20)
+
+                if price > ma20:
+                    st.success(f"Gold Bullish ({round(price,2)})")
+                else:
+                    st.warning(f"Gold Cooling ({round(price,2)})")
+
+                st.line_chart(close)
+
+        except Exception as e:
+            st.error(f"Gold processing error: {e}")
 
 # =========================
 # NSE STOCK LIST
@@ -80,7 +95,7 @@ def get_nse():
     df = pd.read_csv(url)
     return [s + ".NS" for s in df["SYMBOL"].tolist()]
 
-stocks = get_nse()[:250]
+stocks = get_nse()[:200]
 
 st.header("📊 NSE Universe")
 st.write(f"Stocks Loaded: {len(stocks)}")
@@ -97,20 +112,26 @@ for s in stocks:
     if df is None:
         continue
 
-    close = df["Close"]
+    close = df["Close"].dropna()
+    if len(close) < 100:
+        continue
 
-    ma50 = close.rolling(50).mean().iloc[-1]
-    ma100 = close.rolling(100).mean().iloc[-1]
-    vol = close.pct_change().std()
+    try:
+        ma50 = close.rolling(50).mean().iloc[-1]
+        ma100 = close.rolling(100).mean().iloc[-1]
+        vol = close.pct_change().std()
 
-    if (
-        close.iloc[-1] > ma50
-        and ma50 > ma100
-        and vol < 0.04
-    ):
-        quality.append(s)
+        if (
+            close.iloc[-1] > ma50
+            and ma50 > ma100
+            and vol < 0.04
+        ):
+            quality.append(s)
 
-    time.sleep(0.15)  # prevent API block
+    except:
+        continue
+
+    time.sleep(0.1)
 
 quality = quality[:60]
 
@@ -118,7 +139,7 @@ st.success(f"{len(quality)} stocks passed quality filter")
 st.dataframe(pd.DataFrame(quality, columns=["Stocks"]))
 
 # =========================
-# STEP 2 → EARLY UPTREND (SCORING BASED)
+# STEP 2 → EARLY UPTREND
 # =========================
 st.header("🎯 Stocks About to Enter Uptrend")
 
@@ -130,52 +151,58 @@ for s in quality:
     if df is None:
         continue
 
-    close = df["Close"]
-    price = float(close.iloc[-1])
+    close = df["Close"].dropna()
+    if len(close) < 60:
+        continue
 
-    ma20 = float(close.rolling(20).mean().iloc[-1])
-    ma50 = float(close.rolling(50).mean().iloc[-1])
+    try:
+        price = float(close.iloc[-1])
+        ma20 = float(close.rolling(20).mean().iloc[-1])
+        ma50 = float(close.rolling(50).mean().iloc[-1])
 
-    momentum = ((price - close.iloc[-5]) / close.iloc[-5]) * 100
-    high = close[-20:].max()
+        momentum = ((price - close.iloc[-5]) / close.iloc[-5]) * 100
+        high = close[-20:].max()
 
-    cond1 = abs(price - ma20)/ma20 < 0.04
-    cond2 = ma20 >= ma50 * 0.95
-    cond3 = -1 < momentum < 3.5
-    cond4 = price >= 0.88 * high
+        cond1 = abs(price - ma20)/ma20 < 0.04
+        cond2 = ma20 >= ma50 * 0.95
+        cond3 = -1 < momentum < 3.5
+        cond4 = price >= 0.88 * high
 
-    score = sum([cond1, cond2, cond3, cond4])
+        score = sum([cond1, cond2, cond3, cond4])
 
-    reasons = []
-    if not cond1:
-        reasons.append("Far from support")
-    if not cond2:
-        reasons.append("Weak trend")
-    if not cond3:
-        reasons.append("Momentum issue")
-    if not cond4:
-        reasons.append("No breakout setup")
+        reasons = []
+        if not cond1:
+            reasons.append("Far from support")
+        if not cond2:
+            reasons.append("Weak trend")
+        if not cond3:
+            reasons.append("Momentum issue")
+        if not cond4:
+            reasons.append("No breakout setup")
 
-    if score >= 3:
-        selected.append({
-            "Stock": s,
-            "Score": score,
-            "Entry": round(ma20,2),
-            "Breakout": round(high,2),
-            "Momentum": round(momentum,2)
-        })
-    else:
-        rejected.append({
-            "Stock": s,
-            "Reason": ", ".join(reasons)
-        })
+        if score >= 3:
+            selected.append({
+                "Stock": s,
+                "Score": score,
+                "Entry": round(ma20,2),
+                "Breakout": round(high,2),
+                "Momentum": round(momentum,2)
+            })
+        else:
+            rejected.append({
+                "Stock": s,
+                "Reason": ", ".join(reasons)
+            })
 
-    time.sleep(0.15)
+    except:
+        continue
+
+    time.sleep(0.1)
 
 selected = sorted(selected, key=lambda x: x["Score"], reverse=True)[:5]
 
 # =========================
-# DISPLAY RESULTS
+# DISPLAY
 # =========================
 st.write(f"Selected stocks: {len(selected)}")
 
@@ -200,9 +227,9 @@ else:
 # =========================
 st.header("🎯 Final Strategy")
 
-if real_rate and real_rate < 1:
+if real_rate is not None and real_rate < 1:
     st.warning("Selective buying — focus on breakout stocks only")
-elif real_rate and real_rate >= 1:
+elif real_rate is not None and real_rate >= 1:
     st.error("Avoid aggressive buying")
 else:
     st.info("Wait for clarity")
